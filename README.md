@@ -4,6 +4,7 @@ An implementation of [JSON Web Tokens](http://self-issued.info/docs/draft-ietf-o
 
 ### Usage
 
+#### HMAC
 ```java
 public class Application {
     public static void main (String [] args) {
@@ -18,6 +19,18 @@ public class Application {
         } catch (IllegalStateException illegalStateException) {
             System.err.println("Invalid Token! " + illegalStateException);
         }
+    }
+}
+```
+
+#### RS256
+```java
+public class Application {
+    public static void main (String [] args) throws Exception {
+        String userCert = "base64 encoded certificate";
+        byte[] decodedUserCert = Base64.decodeBase64(userCert);
+        JWTVerifier jwtVerifier = new JWTVerifier(decodedUserCert);
+        jwtVerifier.verify("signed_data");
     }
 }
 ```
