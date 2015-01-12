@@ -8,13 +8,16 @@ import org.apache.commons.codec.binary.Base64;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.security.Signature;
 import java.security.SignatureException;
-import java.util.ArrayList;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -58,6 +61,7 @@ public class JWTVerifier {
         algorithms.put("HS256", "HmacSHA256");
         algorithms.put("HS384", "HmacSHA384");
         algorithms.put("HS512", "HmacSHA512");
+        algorithms.put("RS256", "SHA256withRSA");
 
         this.secret = secret;
         this.audience = audience;
@@ -103,7 +107,11 @@ public class JWTVerifier {
         JsonNode jwtPayload = decodeAndParse(pieces[1]);
 
         // check signature
-        verifySignature(pieces, algorithm);
+        if (algorithm.startsWith("Hmac")) {
+            verifySignature(pieces, algorithm);
+        } else {
+            verifyRsaSignature(pieces, algorithm);
+        }
 
         // additional JWTClaims checks
         verifyExpiration(jwtPayload);
@@ -119,6 +127,23 @@ public class JWTVerifier {
         byte[] sig = hmac.doFinal(new StringBuilder(pieces[0]).append(".").append(pieces[1]).toString().getBytes());
 
         if (!Arrays.equals(sig, decoder.decodeBase64(pieces[2]))) {
+            throw new SignatureException("signature verification failed");
+        }
+    }
+
+    void verifyRsaSignature(String[] pieces, String algorithm) throws NoSuchAlgorithmException, InvalidKeyException, SignatureException, JWTVerifyException {
+        Certificate certificate;
+        try {
+            certificate = generateCertificate();
+        } catch (CertificateException ex) {
+            throw new JWTVerifyException("Unable to generate certificate: " + ex.getMessage());
+        }
+
+        Signature sig = Signature.getInstance(algorithm);
+        sig.initVerify(certificate.getPublicKey());
+        byte[] signedData = new StringBuilder(pieces[0]).append(".").append(pieces[1]).toString().getBytes();
+        sig.update(signedData);
+        if (!sig.verify(Base64.decodeBase64(pieces[2]))) {
             throw new SignatureException("signature verification failed");
         }
     }
@@ -175,5 +200,17 @@ public class JWTVerifier {
         String jsonString = new String(decoder.decodeBase64(b64String), "UTF-8");
         JsonNode jwtHeader = mapper.readValue(jsonString, JsonNode.class);
         return jwtHeader;
+    }
+
+    /**
+     * Generates a certificate object and initializes it with the data read from
+     * the <code>secret</code> byte array.
+     * 
+     * @return a certificate object initialized with the data from the byte array
+     * @throws CertificateException on parsing errors
+     */
+    Certificate generateCertificate() throws CertificateException {
+        CertificateFactory cf = CertificateFactory.getInstance("X509");
+        return cf.generateCertificate(new ByteArrayInputStream(secret));
     }
 }
